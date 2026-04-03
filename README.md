@@ -462,4 +462,4 @@ npm run typecheck
 
 ## License
 
-Add the license you want before wider distribution.
+[MIT](LICENSE)

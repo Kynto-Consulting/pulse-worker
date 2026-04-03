@@ -27,6 +27,7 @@ It is not your database. It is the realtime edge transport layer.
 - optional presence join/leave events
 - optional initial presence snapshot
 - optional self-echo behavior
+- heartbeat ping/pong support for clients
 - health and info endpoints
 - lightweight codebase that is easy to fork and customize
 
@@ -156,6 +157,29 @@ Current behavior:
   }
 }
 ```
+
+### Heartbeat pong
+
+If the client sends the internal heartbeat message:
+
+```json
+{
+  "type": "pulse",
+  "event": "ping"
+}
+```
+
+the worker answers only to that socket with:
+
+```json
+{
+  "type": "system",
+  "event": "pong",
+  "ts": 1712188800000
+}
+```
+
+This helps clients detect dead sockets without broadcasting heartbeat traffic to the rest of the room.
 
 ### Presence sync
 

@@ -75,6 +75,15 @@ export class PulseBroker extends DurableObject {
     const session = this.sessions.get(ws);
     const maxMessageBytes = Number(this.env.PULSE_MAX_MESSAGE_BYTES || '0');
 
+    if (this.isHeartbeatMessage(message)) {
+      ws.send(JSON.stringify({
+        type: 'system',
+        event: 'pong',
+        ts: Date.now(),
+      }));
+      return;
+    }
+
     if (maxMessageBytes > 0 && this.getMessageSize(message) > maxMessageBytes) {
       ws.send(JSON.stringify({
         type: 'error',
@@ -149,6 +158,19 @@ export class PulseBroker extends DurableObject {
       return JSON.parse(raw) as Record<string, unknown>;
     } catch {
       return {};
+    }
+  }
+
+  private isHeartbeatMessage(message: string | ArrayBuffer): boolean {
+    if (typeof message !== 'string') {
+      return false;
+    }
+
+    try {
+      const parsed = JSON.parse(message) as { type?: unknown; event?: unknown };
+      return parsed.type === 'pulse' && parsed.event === 'ping';
+    } catch {
+      return false;
     }
   }
 }

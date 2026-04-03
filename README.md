@@ -40,6 +40,31 @@ It is not your database. It is the realtime edge transport layer.
 
 This keeps the source of truth in your own backend while the edge handles fast fan-out.
 
+## Why Pulse instead of Ably?
+
+Pulse exists for teams that want the realtime transport to live inside their own infrastructure instead of inside a managed vendor platform.
+
+Why this can be attractive compared with Ably:
+
+- the worker runs in your own Cloudflare account
+- auth is your JWT, your secret, your room model
+- the realtime edge endpoint sits on Cloudflare's network, which can reduce latency if the rest of your product is already close to Cloudflare
+- you can customize connect rules, broadcasting, rate limits and payload handling in code
+- there is no external vendor lock-in around room semantics or message flow
+
+Free-tier economics are also different:
+
+- Ably and similar services usually expose explicit plan limits around connections, channels, history or messages, and those limits can change over time
+- Pulse on Cloudflare Workers uses the Cloudflare quota model instead, where the WebSocket handshake is counted as a Worker request
+- on Workers Free, the commonly cited quota is around `100k` requests per day, so the relevant ceiling is roughly `100k` new socket handshakes per day for that specific quota category
+
+That is why Pulse is often more attractive for products with many sessions and comparatively light message traffic. It is a different cost model than paying a dedicated realtime SaaS provider for connections and message throughput. Check current pricing pages before quoting exact numbers, because both Cloudflare and Ably can change plan limits.
+
+In short:
+
+- choose Pulse if you want control, edge locality and Cloudflare-native deployment
+- choose Ably if you want a more fully managed vendor service and are comfortable with its product limits and pricing model
+
 ## Endpoints
 
 ### `GET /health`

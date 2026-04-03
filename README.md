@@ -1,54 +1,73 @@
 # Pulse Worker
 
-A minimal WebSocket broker for Cloudflare Workers + Durable Objects.
+![cloudflare workers](https://img.shields.io/badge/cloudflare-workers-f38020)
+![durable objects](https://img.shields.io/badge/state-durable%20objects-1f2937)
+![deploy ready](https://img.shields.io/badge/deploy-ready-10b981)
 
-`pulse-worker` lets you deploy your own real-time WebSocket server on Cloudflare without building a full backend around socket rooms, presence, or connection routing.
+A minimal authenticated WebSocket broker built on Cloudflare Workers and Durable Objects.
 
-It is designed for collaborative apps such as:
+`pulse-worker` is meant for teams that want to deploy their own custom WebSocket server quickly without handing over transport to a third-party realtime vendor.
 
-- Kanban boards
-- Notion-style block editors
-- Realtime dashboards
-- Presence-aware internal tools
-- Lightweight multiplayer or shared cursors
+It is a good fit for:
 
-The worker does not persist your app data. Your own backend or database remains the source of truth. `pulse-worker` only handles authenticated WebSocket fan-out, room routing, and optional presence events.
+- collaborative boards
+- block editors
+- live dashboards
+- internal tools with presence
+- realtime notifications inside an existing product
 
-## What it does
+It is not your database. It is the realtime edge transport layer.
 
-- Accepts WebSocket upgrades on `/ws`
-- Verifies a signed JWT ticket before opening the socket
-- Routes each client to a Durable Object instance per `roomId`
-- Broadcasts messages to everyone else in the same room
-- Supports optional presence events and presence sync
-- Supports optional self-echo behavior per connection
-- Exposes `/health` and `/info` endpoints for quick checks
+## What you get
+
+- WebSocket upgrade handling on `/ws`
+- JWT validation before room join
+- routing by `roomId` into a Durable Object
+- room-level fan-out broadcasting
+- optional presence join/leave events
+- optional initial presence snapshot
+- optional self-echo behavior
+- health and info endpoints
+- lightweight codebase that is easy to fork and customize
 
 ## Architecture
 
-1. Your backend signs a short-lived JWT containing `roomId` and `userId`.
-2. The client connects to this worker with that ticket.
-3. The worker verifies the token and forwards the request to a Durable Object derived from `roomId`.
-4. The Durable Object keeps track of active sockets for that room and broadcasts updates.
+1. Your backend signs a short-lived JWT with `roomId` and `userId`.
+2. The client connects to `/ws` using that token.
+3. The worker validates the token with `PULSE_SECRET`.
+4. The worker forwards the request to a Durable Object derived from `roomId`.
+5. The Durable Object keeps active sockets for the room and broadcasts updates.
 
-This gives you a cheap edge-hosted broker while keeping business rules and persistence in your own backend.
+This keeps the source of truth in your own backend while the edge handles fast fan-out.
 
 ## Endpoints
 
-- `GET /health`
-  Returns a simple JSON health payload.
+### `GET /health`
 
-- `GET /info`
-  Returns worker capabilities and supported auth modes.
+Returns:
 
-- `GET /ws?token=...`
-  Upgrades to WebSocket after token validation.
+```json
+{
+  "ok": true,
+  "service": "pulse-worker"
+}
+```
 
-You can also pass the token with an `Authorization: Bearer <token>` header.
+### `GET /info`
+
+Returns worker capabilities and auth modes.
+
+### `GET /ws?token=...`
+
+Performs WebSocket upgrade after JWT validation.
+
+Also supported:
+
+```http
+Authorization: Bearer <token>
+```
 
 ## Token contract
-
-The worker expects a JWT signed with the same secret configured in `PULSE_SECRET`.
 
 Minimum payload:
 
@@ -59,7 +78,7 @@ Minimum payload:
 }
 ```
 
-Extended payload supported by the worker:
+Extended payload:
 
 ```json
 {
@@ -78,17 +97,26 @@ Extended payload supported by the worker:
 }
 ```
 
-Notes:
+Current behavior:
 
-- `presence`: if `false`, the worker does not emit join/leave presence events for that connection.
-- `presenceSync`: if `true`, the worker sends a `presence.sync` snapshot when the socket connects.
-- `selfEcho`: if `true`, the sender also receives its own outgoing message.
-- `metadata`: forwarded with presence events.
-- `scopes`: currently passed through in the token, ready for future authorization logic.
+- `presence: false`
+  No join/leave events for that connection.
+
+- `presenceSync: true`
+  Sends a room presence snapshot immediately after connect.
+
+- `selfEcho: true`
+  Broadcasts messages back to the sender too.
+
+- `metadata`
+  Included in presence payloads.
+
+- `scopes`
+  Accepted in the token and available for future auth extensions.
 
 ## Worker events
 
-When a socket connects successfully, the worker emits a ready event:
+### Ready event
 
 ```json
 {
@@ -104,7 +132,7 @@ When a socket connects successfully, the worker emits a ready event:
 }
 ```
 
-If `presenceSync` is enabled, the worker also emits:
+### Presence sync
 
 ```json
 {
@@ -121,7 +149,7 @@ If `presenceSync` is enabled, the worker also emits:
 }
 ```
 
-Join event:
+### Presence join
 
 ```json
 {
@@ -134,7 +162,7 @@ Join event:
 }
 ```
 
-Leave event:
+### Presence leave
 
 ```json
 {
@@ -147,7 +175,9 @@ Leave event:
 }
 ```
 
-If `PULSE_MAX_MESSAGE_BYTES` is configured and a client exceeds it, the worker returns:
+### Message too large
+
+If `PULSE_MAX_MESSAGE_BYTES` is configured and the client exceeds it:
 
 ```json
 {
@@ -159,42 +189,32 @@ If `PULSE_MAX_MESSAGE_BYTES` is configured and a client exceeds it, the worker r
 
 ## Quick start
 
-### 1. Prerequisites
-
-You need:
-
-- A Cloudflare account
-- Node.js 20+
-- npm
-- Wrangler CLI via local dependency in this project
-
-### 2. Install dependencies
+### 1. Clone and install
 
 ```bash
 npm install
 ```
 
-### 3. Authenticate Wrangler
+### 2. Login to Cloudflare
 
 ```bash
 npx wrangler login
 ```
 
-### 4. Configure your secret
+### 3. Configure the worker name
 
-The project ships with a dev placeholder in [wrangler.toml](wrangler.toml), but you should override it for real environments.
+Edit [wrangler.toml](wrangler.toml):
 
-For local development you can keep the placeholder, but for deployed environments use:
+```toml
+name = "your-pulse-worker"
+```
+
+### 4. Configure the shared secret
+
+For real deployments, set it as a Wrangler secret:
 
 ```bash
 npx wrangler secret put PULSE_SECRET
-```
-
-Optional: if you want to reject large payloads, also set a max size in bytes in [wrangler.toml](wrangler.toml) or through environment config:
-
-```toml
-[vars]
-PULSE_MAX_MESSAGE_BYTES = "65536"
 ```
 
 ### 5. Run locally
@@ -203,28 +223,68 @@ PULSE_MAX_MESSAGE_BYTES = "65536"
 npm run dev
 ```
 
-This starts the worker locally, usually on `http://127.0.0.1:8787`.
+Usually available at:
 
-You can test the non-WebSocket routes immediately:
+```text
+http://127.0.0.1:8787
+```
+
+### 6. Smoke check the HTTP routes
 
 ```bash
 curl http://127.0.0.1:8787/health
 curl http://127.0.0.1:8787/info
 ```
 
-### 6. Deploy
+### 7. Deploy
 
 ```bash
 npm run deploy
 ```
 
-Wrangler will deploy the worker and Durable Object migration declared in [wrangler.toml](wrangler.toml).
+## Environment setup
+
+### Local dev
+
+You can keep the placeholder `PULSE_SECRET` in [wrangler.toml](wrangler.toml) only for local development.
+
+Optional variable:
+
+```toml
+[vars]
+PULSE_MAX_MESSAGE_BYTES = "65536"
+```
+
+### Staging
+
+Recommended staging shape:
+
+- different worker name
+- different `PULSE_SECRET`
+- optional stricter `PULSE_MAX_MESSAGE_BYTES`
+- separate frontend config pointing at staging URL
+
+Example approach:
+
+```toml
+[env.staging]
+name = "pulse-worker-staging"
+```
+
+Then set secrets for that environment with Wrangler.
+
+### Production
+
+Recommended production shape:
+
+- production-only `PULSE_SECRET`
+- custom domain or workers.dev URL pinned in your app config
+- observability through your own logs/analytics hooks
+- explicit size limits if your client payloads can grow unexpectedly
 
 ## Example backend ticket generation
 
-A client should not mint its own token. Your backend should do that.
-
-If you are using `@arubiku/pulse-lib`:
+Use `@arubiku/pulse-lib` on your backend:
 
 ```ts
 import { generatePulseTicket } from '@arubiku/pulse-lib';
@@ -233,6 +293,7 @@ const token = await generatePulseTicket({
   roomId: 'board-123',
   userId: 'user-42',
   secret: process.env.PULSE_SECRET!,
+  expiresIn: '15m',
   features: {
     presence: true,
     presenceSync: true,
@@ -242,13 +303,12 @@ const token = await generatePulseTicket({
     name: 'Jane',
     role: 'editor',
   },
-  expiresIn: '15m',
 });
 ```
 
-## Example client connection
+## Example clients
 
-Vanilla browser WebSocket:
+### Native browser WebSocket
 
 ```ts
 const ws = new WebSocket(`wss://your-worker.workers.dev/ws?token=${token}`);
@@ -256,18 +316,9 @@ const ws = new WebSocket(`wss://your-worker.workers.dev/ws?token=${token}`);
 ws.onmessage = (event) => {
   console.log(JSON.parse(event.data));
 };
-
-ws.onopen = () => {
-  ws.send(JSON.stringify({
-    type: 'update',
-    entity: 'brick',
-    id: 'brick-1',
-    patch: { title: 'Renamed' },
-  }));
-};
 ```
 
-Using `@arubiku/pulse-lib` client:
+### With `@arubiku/pulse-lib`
 
 ```ts
 import { PulseClient } from '@arubiku/pulse-lib';
@@ -276,54 +327,90 @@ const client = new PulseClient('https://your-worker.workers.dev', token, {
   reconnectInterval: 1500,
 });
 
-client.on('message', (message) => {
-  console.log(message);
-});
-
-client.on('presence', (event) => {
-  console.log(event);
-});
-
+client.on('presence', (event) => console.log(event));
+client.on('message', (event) => console.log(event));
 client.connect();
 ```
 
+## Customization ideas
+
+This repo is intentionally small so teams can fork and adapt it fast.
+
+Common customizations:
+
+- schema validation before broadcast
+- scope-based room authorization
+- write permissions vs read-only sockets
+- room occupancy limits
+- per-user rate limiting
+- analytics hooks on connect and disconnect
+- forwarding writes to your own API or queue
+- server-side event enrichment before fan-out
+
 ## Project files
 
-- [src/index.ts](src/index.ts): request validation, token verification and room routing
-- [src/broker.ts](src/broker.ts): Durable Object socket handling and broadcasts
-- [src/types.ts](src/types.ts): token and session types
-- [wrangler.toml](wrangler.toml): Worker and Durable Object bindings
+- [src/index.ts](src/index.ts)
+  Token verification, request routing and HTTP endpoints.
 
-## Common deployment flow
+- [src/broker.ts](src/broker.ts)
+  Durable Object connection lifecycle and room broadcasting.
 
-1. Fork or clone the repo.
-2. Change the worker name in [wrangler.toml](wrangler.toml).
-3. Set your production `PULSE_SECRET`.
-4. Deploy with `npm run deploy`.
-5. Generate JWT tickets from your backend.
-6. Connect clients to `/ws`.
+- [src/types.ts](src/types.ts)
+  Shared token and session types.
 
-## Notes for custom servers
+- [wrangler.toml](wrangler.toml)
+  Worker config, bindings and migration declarations.
 
-This project is intentionally small so you can customize it quickly.
+## Troubleshooting
 
-Common extensions teams usually add:
+### `Invalid ticket`
 
-- scope-based authorization before room join
-- room membership limits
-- rate limiting per user
-- schema validation for incoming messages
-- custom analytics hooks on connect/disconnect
-- write-through persistence to your own API or queue
+The signing secret in your backend does not match `PULSE_SECRET` in the worker.
+
+### `Expected Upgrade: websocket`
+
+You are calling `/ws` as plain HTTP instead of opening a WebSocket.
+
+### Clients connect but do not see each other
+
+Check that they are using the same `roomId` inside the signed JWT.
+
+### Presence is missing
+
+Set `features.presence` and `features.presenceSync` in the token.
+
+### Sender does not receive its own message
+
+This is the default behavior. Enable `features.selfEcho = true` if you want message echo.
+
+### Payload rejected as too large
+
+Increase `PULSE_MAX_MESSAGE_BYTES` or send smaller deltas instead of large documents.
+
+### Local dev works but prod fails
+
+Check these first:
+
+- worker URL mismatch
+- wrong production secret
+- frontend still pointing to localhost
+- environment-specific Wrangler secret not configured
 
 ## Development checks
-
-Typecheck the worker with:
 
 ```bash
 npm run typecheck
 ```
 
+## Deploy checklist
+
+1. rename the worker in [wrangler.toml](wrangler.toml)
+2. set `PULSE_SECRET`
+3. optionally set `PULSE_MAX_MESSAGE_BYTES`
+4. deploy with `npm run deploy`
+5. generate tickets from your backend
+6. connect clients to `/ws`
+
 ## License
 
-Use your preferred license before broader distribution.
+Add the license you want before wider distribution.

@@ -1,0 +1,18 @@
+name = "pulse-worker"
+main = "src/index.ts"
+compatibility_date = "2024-03-20"
+compatibility_flags = ["nodejs_compat"]
+
+# Bind our Durable Object
+[[durable_objects.bindings]]
+name = "PULSE_DO"
+class_name = "PulseBroker"
+
+# Apply migrations when adding a new DO class
+[[migrations]]
+tag = "v1"
+new_classes = ["PulseBroker"]
+
+# Env vars (Override PULSE_SECRET in Cloudflare Dashboard for prod)
+[vars]
+PULSE_SECRET = "super-secret-dev-key"

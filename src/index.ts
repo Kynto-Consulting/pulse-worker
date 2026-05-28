@@ -52,6 +52,7 @@ export default {
       return json({ ok: true, service: 'pulse-worker' });
     }
 
+
     if (request.method === 'GET' && url.pathname === '/info') {
       return json({
         service: 'pulse-worker',

@@ -19,7 +19,30 @@ export class PulseBroker extends DurableObject {
     }
   }
 
+  public broadcastMessage(message: string): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(message);
+      } catch {
+        // ignore disconnected clients
+      }
+    }
+  }
+
+  async handleBroadcast(message: string): Promise<void> {
+    this.broadcastMessage(message);
+  }
+
   async fetch(request: Request): Promise<Response> {
+    if (request.method === 'POST' && new URL(request.url).pathname === '/broadcast') {
+      const body = await request.json() as { event: string; payload: unknown };
+      const message = JSON.stringify({ event: body.event, payload: body.payload });
+      this.broadcastMessage(message);
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
     const webSocketPair = new WebSocketPair();
     const [client, server] = Object.values(webSocketPair);
     const roomId = request.headers.get('X-Pulse-Room-Id') || 'unknown';

@@ -27,3 +27,8 @@ export interface PresenceMember {
   userId: string;
   metadata?: PulseMetadata;
 }
+
+export interface BroadcastPayload {
+  event: string;
+  payload: unknown;
+}

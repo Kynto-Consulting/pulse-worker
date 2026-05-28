@@ -6,6 +6,7 @@ export { PulseBroker } from './broker';
 
 export interface Env {
   PULSE_SECRET: string;
+  PULSE_BROADCAST_SECRET: string;
   PULSE_DO: DurableObjectNamespace;
   PULSE_MAX_MESSAGE_BYTES?: string;
 }
@@ -59,6 +60,34 @@ export default {
       });
     }
     
+    if (request.method === 'POST' && url.pathname === '/broadcast') {
+      const auth = request.headers.get('Authorization');
+      if (!auth || auth !== `Bearer ${env.PULSE_BROADCAST_SECRET}`) {
+        return new Response('Unauthorized', { status: 401 });
+      }
+
+      let body: { roomId: string; event: string; payload: unknown };
+      try {
+        body = await request.json() as { roomId: string; event: string; payload: unknown };
+      } catch {
+        return new Response('Invalid JSON', { status: 400 });
+      }
+
+      if (!body.roomId || !body.event) {
+        return new Response('Missing roomId or event', { status: 400 });
+      }
+
+      const id = env.PULSE_DO.idFromName(body.roomId);
+      const stub = env.PULSE_DO.get(id);
+
+      // Forward as a special internal broadcast request to the DO
+      return stub.fetch(new Request('https://internal/broadcast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: body.event, payload: body.payload }),
+      }));
+    }
+
     if (url.pathname !== '/ws') {
       return new Response('Not found', { status: 404 });
     }
